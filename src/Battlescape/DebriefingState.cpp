@@ -1570,30 +1570,6 @@ void DebriefingState::prepareDebriefing()
 					else
 					{ // non soldier player = tank
 						addItemsToBaseStores(bunit->getType(), base, 1, false);
-
-						auto unloadWeapon = [&](BattleItem *weapon)
-						{
-							if (weapon)
-							{
-								const RuleItem *primaryRule = weapon->getRules();
-								const BattleItem *ammoItem = weapon->getAmmoForSlot(0);
-								const RuleItem *compatible = primaryRule->getVehicleClipAmmo();
-								if (primaryRule->getVehicleUnit() && compatible && ammoItem != 0 && ammoItem->getAmmoQuantity() > 0)
-								{
-									int total = ammoItem->getAmmoQuantity();
-
-									if (primaryRule->getClipSize()) // meaning this tank can store multiple clips
-									{
-										total /= ammoItem->getRules()->getClipSize();
-									}
-
-									addItemsToBaseStores(compatible, base, total, false);
-								}
-							}
-						};
-
-						unloadWeapon(bunit->getRightHandWeapon());
-						unloadWeapon(bunit->getLeftHandWeapon());
 					}
 				}
 				else
@@ -2488,16 +2464,34 @@ void DebriefingState::recoverItems(std::vector<BattleItem*> *from, Base *base, C
 					}
 				}
 			}
-			// special case of fixed weapons on a soldier's armor, but not HWPs
+			// special case of fixed weapons
 			// makes sure we recover the ammunition from this weapon
-			else if (rule->isFixed() && bi->getOwner() && bi->getOwner()->getOriginalFaction() == FACTION_PLAYER && bi->getOwner()->getGeoscapeSoldier())
+			else if (rule->isFixed() && bi->getOwner() && bi->getOwner()->getOriginalFaction() == FACTION_PLAYER)
 			{
 				switch (rule->getBattleType())
 				{
 					case BT_FIREARM:
 					case BT_MELEE:
-						// It's a weapon, count any rounds left in the clip.
-						recoveryAmmoInWeapon(bi);
+						if (!bi->getOwner()->getGeoscapeSoldier() &&  rule->getVehicleUnit() &&
+							rule->getVehicleClipAmmo() && rule->getClipSize() <= 0)
+						{
+							// This item is equipped on hwp, is hwp main weapon, it uses slot 0 ammo, and every round in ammo slot 0 should turn into geoscape item
+							BattleItem *hwpClip = bi->setAmmoForSlot(0, nullptr);
+							if (hwpClip && hwpClip->getAmmoQuantity() > 0)
+							{
+								addItemsToBaseStores(hwpClip->getRules(), base, hwpClip->getAmmoQuantity(), false);
+							}
+							recoveryAmmoInWeapon(bi); // recover ammo in slots 1-3 as usual
+							bi->setAmmoForSlot(0, hwpClip);
+						}
+						else
+						{
+							// this is either normal built-in weapon, or hwp weapon without primary ammo,
+							// or hwp weapon with clipSize > 0, so ammo should be converted into geoscape items
+							// as 'remaining rounds / ammo clipSize', like for normal guns
+							// or hwp weapon on normal soldier
+							recoveryAmmoInWeapon(bi);
+						}
 						break;
 					default:
 						break;
